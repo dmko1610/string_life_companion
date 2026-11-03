@@ -2,11 +2,12 @@ import SwiftUI
 
 @main
 struct StringLifeCompanionApp: App {
-    @StateObject private var probe = AmplifierProbe()
-    
+    @NSApplicationDelegateAdaptor(AppDelegate.self)
+    private var appDelegate
+
     var body: some Scene {
         MenuBarExtra("String Life Companion", systemImage: "guitars") {
-            ContentView(probe: probe)
+            ContentView(probe: appDelegate.probe)
         }
         .menuBarExtraStyle(.window)
     }

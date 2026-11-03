@@ -60,14 +60,10 @@ struct ContentView: View {
             Divider()
 
             Button("Quit Companion") {
-                probe.stop()
                 NSApplication.shared.terminate(nil)
             }
         }
         .padding()
         .frame(width: 380)
-        .onAppear {
-            probe.start()
-        }
     }
 }
