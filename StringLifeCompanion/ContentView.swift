@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @ObservedObject var probe: AmplifierProbe
+    @ObservedObject var probe: AmplifierProcessMonitor
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

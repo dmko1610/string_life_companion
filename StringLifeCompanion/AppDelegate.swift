@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let probe  = AmplifierProbe()
+    let probe  = AmplifierProcessMonitor()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         probe.start()
