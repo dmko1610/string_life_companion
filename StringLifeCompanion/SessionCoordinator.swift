@@ -27,7 +27,7 @@ final class SessionCoordinator: ObservableObject {
         }
     }
 
-    func restore(useing processes: [AmplifierProcessMonitor.Amplifier]) {
+    func restore(using processes: [AmplifierProcessMonitor.Amplifier]) {
         do {
             let savedActive = try repository.loadActiveSession()
 
@@ -152,6 +152,9 @@ final class SessionCoordinator: ObservableObject {
             lastObservedAt: startedAt,
             timingIsApproximate: false
         )
+
+        activeSession = session
+        persist(session)
     }
 
     private func persist(_ session: PlayingSession) {
