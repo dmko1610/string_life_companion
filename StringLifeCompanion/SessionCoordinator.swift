@@ -9,6 +9,7 @@ final class SessionCoordinator: ObservableObject {
 
     private let repository: any SessionRepository
     private let now: () -> Date
+    private var pendingSave: PlayingSession?
 
     init(
         repository: any SessionRepository,
@@ -21,67 +22,146 @@ final class SessionCoordinator: ObservableObject {
     func reloadHistory() {
         do {
             sessions = try repository.listSessions()
-            errorMessage = nil
         } catch {
             errorMessage = "Could not load session history: \(error)"
+        }
+    }
+
+    func restore(useing processes: [AmplifierProcessMonitor.Amplifier]) {
+        do {
+            let savedActive = try repository.loadActiveSession()
+
+            if let savedActive {
+                if processes.isEmpty {
+                    var recovered = savedActive
+                    recovered.endedAt = savedActive.lastObservedAt
+                    recovered.status = .recovered
+                    recovered.timingIsApproximate = true
+
+                    activeSession = recovered
+                    persist(recovered)
+                } else {
+                    var resumed = savedActive
+                    resumed.amplifierBundleIDs = Array(
+                        Set(savedActive.amplifierBundleIDs).union(
+                            processes.map(\.bundleID)
+                        )
+                    ).sorted()
+                    resumed.lastObservedAt = now()
+                    resumed.timingIsApproximate = true
+
+                    activeSession = resumed
+                    persist(resumed)
+                }
+            } else if !processes.isEmpty {
+                startSession(for: processes)
+            }
+
+            reloadHistory()
+        } catch {
+            errorMessage = "Could not restore session: \(error)"
         }
     }
 
     func processesChanged(to processes: [AmplifierProcessMonitor.Amplifier]) {
         let timestamp = now()
 
-        do {
-            if processes.isEmpty {
-                guard var session = activeSession else {
-                    return
-                }
-
-                session.endedAt = timestamp
-                session.status = .completed
-                session.lastObservedAt = timestamp
-
-                try repository.save(session)
-                activeSession = nil
-                errorMessage = nil
-                reloadHistory()
-                return
-            }
-
-            let runningBundleIDs = Set(processes.map(\.bundleID))
-
+        if processes.isEmpty {
             guard var session = activeSession else {
-                let newSession = PlayingSession(
-                    id: UUID(),
-                    startedAt: timestamp,
-                    endedAt: nil,
-                    status: .active,
-                    amplifierBundleIDs: runningBundleIDs.sorted(),
-                    lastObservedAt: timestamp,
-                    timingIsApproximate: false
-                )
-
-                try repository.save(newSession)
-                activeSession = newSession
-                errorMessage = nil
-                reloadHistory()
                 return
             }
 
-            let previousIDs = Set(session.amplifierBundleIDs)
-            let mergedIDs = previousIDs.union(runningBundleIDs).sorted()
-
-            guard mergedIDs != session.amplifierBundleIDs else {
-                return
-            }
-
-            session.amplifierBundleIDs = mergedIDs
+            session.endedAt = timestamp
+            session.status = .completed
             session.lastObservedAt = timestamp
 
-            try repository.save(session)
             activeSession = session
+            persist(session)
+
+            if pendingSave == nil {
+                activeSession = nil
+            }
+
+            reloadHistory()
+            return
+        }
+
+        guard var session = activeSession else {
+            startSession(for: processes, at: timestamp)
+            return
+        }
+
+        let mergedIDs = Set(session.amplifierBundleIDs).union(
+            processes.map(\.bundleID)
+        ).sorted()
+
+        if mergedIDs != session.amplifierBundleIDs {
+            session.amplifierBundleIDs = mergedIDs
+        }
+
+        session.lastObservedAt = timestamp
+        activeSession = session
+        persist(session)
+    }
+
+    func checkpoint() {
+        guard var session = activeSession, session.status == .active else {
+            return
+        }
+
+        session.lastObservedAt = now()
+        activeSession = session
+        persist(session)
+    }
+
+    func retryPendingSave() {
+        guard let pendingSave else {
+            errorMessage = nil
+            return
+        }
+
+        do {
+            try repository.save(pendingSave)
+            self.pendingSave = nil
+            errorMessage = nil
+
+            if pendingSave.status != .active,
+                activeSession?.id == pendingSave.id
+            {
+                activeSession = nil
+            }
+
+            reloadHistory()
+        } catch {
+            errorMessage = "Save failed again: \(error)"
+        }
+    }
+
+    private func startSession(
+        for processes: [AmplifierProcessMonitor.Amplifier],
+        at timestamp: Date? = nil
+    ) {
+        let startedAt = timestamp ?? now()
+
+        let session = PlayingSession(
+            id: UUID(),
+            startedAt: startedAt,
+            endedAt: nil,
+            status: .active,
+            amplifierBundleIDs: Array(Set(processes.map(\.bundleID))).sorted(),
+            lastObservedAt: startedAt,
+            timingIsApproximate: false
+        )
+    }
+
+    private func persist(_ session: PlayingSession) {
+        do {
+            try repository.save(session)
+            pendingSave = nil
             errorMessage = nil
             reloadHistory()
         } catch {
+            pendingSave = session
             errorMessage = "Could not save session: \(error)"
         }
     }
